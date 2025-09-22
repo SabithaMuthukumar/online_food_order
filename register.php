@@ -1,262 +1,207 @@
 <?php
-session_start();
-include("back_end/database_connectivity.php");
+include("database_connectivity.php");
 
-// Initialize variables
-$errors = array();
-$success = '';
+$errors = [];
+$values = [
+    'name' => '',
+    'phone' => '',
+    'address' => '',
+    'email' => '',
+    'gender' => ''
+];
+$details = '';
+$message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get form data
-    $cust_id = strtoupper(uniqid('CUST')); // Generate unique customer ID
-    $name = trim($_POST['name']);
-    $phno = trim($_POST['phno']);
-    $address = trim($_POST['address']);
-    $email = trim($_POST['email']);
-    $gender = trim($_POST['gender']);
-    $password = trim($_POST['password']);
-    $confirm_password = trim($_POST['confirm_password']);
-    
-    // Validate inputs
-    if (empty($name)) $errors[] = "Name is required";
-    if (empty($phno)) $errors[] = "Phone number is required";
-    if (empty($address)) $errors[] = "Address is required";
-    if (empty($email)) $errors[] = "Email is required";
-    if (empty($gender)) $errors[] = "Gender is required";
-    if (empty($password)) $errors[] = "Password is required";
-    if ($password !== $confirm_password) $errors[] = "Passwords do not match";
-    
-    // Check if email already exists
-    if (empty($errors) && !empty($email)) {
-        $checkEmail = $conn->prepare("SELECT Cust_ID FROM customer_det WHERE Email = ?");
-        $checkEmail->bind_param("s", $email);
-        $checkEmail->execute();
-        $checkResult = $checkEmail->get_result();
-        
-        if ($checkResult->num_rows > 0) {
-            $errors[] = "Email already registered";
-        }
-        $checkEmail->close();
+    foreach ($values as $key => $val) {
+        $values[$key] = trim($_POST[$key] ?? '');
     }
-    
-    // If no errors, insert into database
+
+    // Name: only alphabets, at least 2 characters
+    if (empty($values['name'])) {
+        $errors['name'] = "Name is required.";
+    } elseif (!preg_match('/^[A-Za-z\s]{2,}$/', $values['name'])) {
+        $errors['name'] = "Name must contain only alphabets and be at least 2 characters.";
+    }
+
+    // Phone: exactly 10 digits
+    if (empty($values['phone'])) {
+        $errors['phone'] = "Phone number is required.";
+    } elseif (!preg_match('/^\d{10}$/', $values['phone'])) {
+        $errors['phone'] = "Phone must be exactly 10 digits.";
+    }
+
+    // Address: realistic format
+    if (empty($values['address'])) {
+        $errors['address'] = "Address is required.";
+    } elseif (!preg_match('/^[A-Za-z0-9\s,.\-\/#]{5,100}$/', $values['address'])) {
+        $errors['address'] = "Address must be 5–100 characters and contain only letters, numbers, spaces, and , . - / #";
+    }
+
+    // Email: valid format
+    if (empty($values['email'])) {
+        $errors['email'] = "Email is required.";
+    } elseif (!filter_var($values['email'], FILTER_VALIDATE_EMAIL)) {
+        $errors['email'] = "Invalid email format.";
+    }
+
+    // Gender: must be one of the options
+    if (!in_array($values['gender'], ['Male', 'Female', 'Other'])) {
+        $errors['gender'] = "Please select a valid gender.";
+    }
+
+    // If no errors, insert into DB
     if (empty($errors)) {
-        // Hash password
-        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        
-        // Insert customer into database
-        $stmt = $conn->prepare("INSERT INTO customer_det (Cust_ID, Name, Phno, Address, Email, Gender, Password, Registered_date) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
-        $stmt->bind_param("sssssss", $cust_id, $name, $phno, $address, $email, $gender, $hashed_password);
-        
+        $custid = "CUST" . time() . rand(100, 999);
+
+        $stmt = $conn->prepare("INSERT INTO customer_det (Cust_id, Name, Phno, Address, Email, Gender) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssisss", $custid, $values['name'], $values['phone'], $values['address'], $values['email'], $values['gender']);
+
         if ($stmt->execute()) {
-            // Store in session AFTER successful insertion
-            $_SESSION['customer_id'] = $cust_id;
-            $_SESSION['customer_name'] = $name;
-
-            $success = 'Registration successful!';
-
-            // Remove redirect so success message is shown
-            // header("Location: register.php");
-            // exit();
+            $message = "✅ Registration successful!";
+            $details = "
+                <strong>Customer ID:</strong> $custid<br>
+                <strong>Name:</strong> {$values['name']}<br>
+                <strong>Phone:</strong> {$values['phone']}<br>
+                <strong>Address:</strong> {$values['address']}<br>
+                <strong>Email:</strong> {$values['email']}<br>
+                <strong>Gender:</strong> {$values['gender']}
+            ";
+            $values = array_fill_keys(array_keys($values), ''); // Clear form
         } else {
-            $errors[] = "Database error: " . $conn->error;
+            $message = "⚠️ Something went wrong. Please try again.";
         }
+
         $stmt->close();
     }
 }
-$conn->close();
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Food Order System</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        
-        body {
-            background-color: #f8f9fa;
-            color: #333;
-            line-height: 1.6;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 500px;
-            width: 90%;
-        }
-        
-        .register-form {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
-        }
-        
-        h1 {
-            text-align: center;
-            color: #ff6b6b;
-            margin-bottom: 10px;
-        }
-        
-        .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #555;
-        }
-        
-        input[type="text"],
-        input[type="email"],
-        input[type="password"],
-        input[type="tel"],
-        select {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.3s;
-        }
-        
-        input:focus, select:focus {
-            border-color: #ff6b6b;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.2);
-        }
-        
-        .btn {
-            display: inline-block;
-            padding: 12px 24px;
-            color: white;
-            border: none;
-            border-radius: 50px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-            text-decoration: none;
-            width: 100%;
-        }
-        
-        .btn-primary {
-            background: #ff6b6b;
-            box-shadow: 0 4px 10px rgba(255, 107, 107, 0.3);
-        }
-        
-        .btn-primary:hover {
-            background: #ff5252;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(255, 107, 107, 0.4);
-        }
-        
-        .error {
-            color: #ff4757;
-            font-size: 14px;
-            margin-top: 5px;
-        }
-        
-        .success-message {
-            color: #28a745;
-            font-weight: 600;
-            margin: 10px 0;
-            text-align: center;
-        }
-        
-        .login-link {
-            text-align: center;
-            margin-top: 20px;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Register</title>
+  <style>
+    body {
+      background-image: url("../images/backgrounds/back4.png");
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: Arial, sans-serif;
+    }
+
+    .form-container {
+      background-color: rgba(255, 255, 255, 0.9);
+      padding: 20px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin: 10px 0 5px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 5px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+
+    .error {
+      color: red;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 10px;
+      background-color: #ff6b81;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .submit-btn:hover {
+      background-color: #f89fac;
+    }
+
+    .message {
+      margin-bottom: 10px;
+      font-weight: bold;
+      color: #2e7d32;
+      text-align: center;
+    }
+
+    .output {
+      margin-top: 15px;
+      padding: 10px;
+      background: #eaffea;
+      border-radius: 5px;
+      font-size: 14px;
+      display: <?php echo $details ? 'block' : 'none'; ?>;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="register-form">
-            <h1>Create Account</h1>
-            <p class="subtitle">Join us to order delicious food</p>
-            
-            <?php if (!empty($errors)): ?>
-                <div class="error" style="text-align: center; margin-bottom: 20px;">
-                    <?php foreach ($errors as $error): ?>
-                        <p><?php echo $error; ?></p>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-            
-            <?php if ($success): ?>
-                <div class="success-message"><?php echo $success; ?></div>
-            <?php endif; ?>
-            
-            <form method="POST" id="registerForm">
-                <div class="form-group">
-                    <label for="name">Full Name *</label>
-                    <input type="text" id="name" name="name" placeholder="Enter your full name" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="phno">Phone Number *</label>
-                    <input type="tel" id="phno" name="phno" placeholder="Enter your phone number" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="address">Address *</label>
-                    <input type="text" id="address" name="address" placeholder="Enter your delivery address" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="email">Email Address *</label>
-                    <input type="email" id="email" name="email" placeholder="Enter your email" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="gender">Gender *</label>
-                    <select id="gender" name="gender" required>
-                        <option value="">Select Gender</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password *</label>
-                    <input type="password" id="password" name="password" placeholder="Create a password" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="confirm_password">Confirm Password *</label>
-                    <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm your password" required>
-                </div>
-                
-                <button type="submit" class="btn btn-primary">Register</button>
-            </form>
-            
-            <div class="login-link">
-                Already have an account? <a href="login.php">Login here</a>
-            </div>
-        </div>
-    </div>
+
+  <div class="form-container">
+    <h2>Register</h2>
+
+    <?php if ($message): ?>
+      <div class="message"><?php echo $message; ?></div>
+    <?php endif; ?>
+
+    <form method="post" action="">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($values['name']); ?>">
+      <?php if (isset($errors['name'])) echo "<div class='error'>{$errors['name']}</div>"; ?>
+
+      <label for="phone">Phone</label>
+      <input type="tel" id="phone" name="phone" maxlength="10" value="<?php echo htmlspecialchars($values['phone']); ?>">
+      <?php if (isset($errors['phone'])) echo "<div class='error'>{$errors['phone']}</div>"; ?>
+
+      <label for="address">Address</label>
+      <input type="text" id="address" name="address" value="<?php echo htmlspecialchars($values['address']); ?>">
+      <?php if (isset($errors['address'])) echo "<div class='error'>{$errors['address']}</div>"; ?>
+
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($values['email']); ?>">
+      <?php if (isset($errors['email'])) echo "<div class='error'>{$errors['email']}</div>"; ?>
+
+      <label for="gender">Gender</label>
+      <select id="gender" name="gender">
+        <option value="">Select</option>
+        <option <?php if ($values['gender'] === 'Male') echo 'selected'; ?>>Male</option>
+        <option <?php if ($values['gender'] === 'Female') echo 'selected'; ?>>Female</option>
+        <option <?php if ($values['gender'] === 'Other') echo 'selected'; ?>>Other</option>
+      </select>
+      <?php if (isset($errors['gender'])) echo "<div class='error'>{$errors['gender']}</div>"; ?>
+
+      <button type="submit" class="submit-btn">Submit</button>
+    </form>
+
+    <div class="output"><?php echo $details; ?></div>
+  </div>
+
 </body>
 </html>
+
+<?php $conn->close(); ?>
